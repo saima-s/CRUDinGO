@@ -35,7 +35,10 @@ func TestGetCustomerByNameReturnsResult(t *testing.T) {
 		GetCustomerByName(w, req)
 		resp := w.Body.Bytes()
 		var cust []customer
-		json.Unmarshal(resp, &cust)
+		err := json.Unmarshal(resp, &cust)
+		if err != nil {
+			panic(err.Error())
+		}
 		fmt.Println("cust is ", cust)
 		if w.Code != http.StatusOK || !reflect.DeepEqual(cust, testCases[ind].out) {
 			t.Errorf("Expected %T, %v Output %T, %v", testCases[ind].out, testCases[ind].out, cust, cust)
@@ -62,10 +65,13 @@ func TestGetCustomerByIdReturnsResult(t *testing.T) {
 		resp := w.Result()
 		body, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
-
+			panic(err.Error())
 		}
 		var cust customer
-		json.Unmarshal(body, &cust)
+		err = json.Unmarshal(body, &cust)
+		if err != nil {
+			panic(err.Error())
+		}
 		fmt.Printf("body is: %v", string(body))
 
 		if !reflect.DeepEqual(cust, testCases[ind].out) {
@@ -141,7 +147,10 @@ func TestDeleteCustomerReturnsResult(t *testing.T) {
 		DeleteCustomerById(w, req)
 		resp := w.Body.Bytes()
 		var cust customer
-		json.Unmarshal(resp, &cust)
+		err := json.Unmarshal(resp, &cust)
+		if err != nil {
+			panic(err.Error())
+		}
 		if w.Code != http.StatusOK || !reflect.DeepEqual(cust, testCases[ind].out) {
 			t.Errorf("Expected %v Output %v", testCases[ind].out, cust)
 		}
