@@ -3,34 +3,36 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
+	age "github.com/bearbin/go-age"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gorilla/mux"
 )
 
 type customer struct {
-	ID   int
-	Name string
-	DOB  string
-	Age  int
-	Addr address
+	ID      int     `json:"id"`
+	Name    string  `json:"name"`
+	DOB     string  `json:"dob"`
+	Address address `json:"address"`
 }
 type address struct {
-	ID           int
-	City         string
-	State        string
-	StreetNumber string
-	CustId       int
+	ID         int    `json:"id"`
+	City       string `json:"city"`
+	State      string `json:"state"`
+	StreetName string `json:"streetName"`
+	CustId     int    `json:"custId"`
 }
 
-//type Service struct {
-//	db *sql.DB
-//}
+func getAge(year, month, day int) time.Time {
+	dob := time.Date(year, time.Month(month), day, 0, 0, 0, 0, time.UTC)
+	return dob
+}
 
 func getDBConnection() *sql.DB {
 	db, err := sql.Open("mysql", "root:saima@123Sult@/CustomerDB?multiStatements=true")
@@ -58,7 +60,7 @@ func GetCustomerByName(w http.ResponseWriter, r *http.Request) {
 	var result []customer
 	for rows.Next() {
 		var c customer
-		if err := rows.Scan(&c.ID, &c.Name, &c.DOB, &c.Age, &c.Addr.ID, &c.Addr.City, &c.Addr.State, &c.Addr.StreetNumber, &c.Addr.CustId); err != nil {
+		if err := rows.Scan(&c.ID, &c.Name, &c.DOB, &c.Address.ID, &c.Address.City, &c.Address.State, &c.Address.StreetName, &c.Address.CustId); err != nil {
 			log.Fatal(err)
 		}
 		result = append(result, c)
@@ -74,7 +76,6 @@ func GetCustomerByName(w http.ResponseWriter, r *http.Request) {
 func GetCustomerById(w http.ResponseWriter, r *http.Request) {
 	param := mux.Vars(r)
 	id, err1 := strconv.Atoi(param["id"])
-	fmt.Println("err1 came")
 	if err1 != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		err := json.NewEncoder(w).Encode([]customer(nil))
@@ -84,7 +85,6 @@ func GetCustomerById(w http.ResponseWriter, r *http.Request) {
 	} else {
 		var ids []interface{}
 		ids = append(ids, id)
-		fmt.Println(id)
 		db := getDBConnection()
 		query := `SELECT * FROM Customers INNER JOIN Address ON Customers.ID = Address.CustId where Customers.ID = ?; `
 		rows, err := db.Query(query, ids...)
@@ -94,7 +94,7 @@ func GetCustomerById(w http.ResponseWriter, r *http.Request) {
 		defer rows.Close()
 		var c customer
 		for rows.Next() {
-			if err := rows.Scan(&c.ID, &c.Name, &c.DOB, &c.Age, &c.Addr.ID, &c.Addr.City, &c.Addr.State, &c.Addr.StreetNumber, &c.Addr.CustId); err != nil {
+			if err := rows.Scan(&c.ID, &c.Name, &c.DOB, &c.Address.ID, &c.Address.City, &c.Address.State, &c.Address.StreetName, &c.Address.CustId); err != nil {
 				log.Fatal(err)
 			}
 		}
@@ -127,29 +127,34 @@ func CreateCustomer(w http.ResponseWriter, r *http.Request) {
 		} else {
 			cust = append(cust, c.Name)
 			cust = append(cust, c.DOB)
-			cust = append(cust, c.Age)
-			if c.Age <= 18 {
-				query := `INSERT INTO Customers(name, DOB, Age) VALUES(?,?,?);`
+			dob := c.DOB
+			dob1 := strings.Split(dob, "/")
+			y, _ := strconv.Atoi(dob1[2])
+			m, _ := strconv.Atoi(dob1[1])
+			d, _ := strconv.Atoi(dob1[0])
+			getAge := getAge(y, m, d)
+			if age.Age(getAge) >= 18 {
+				query := `INSERT INTO Customers(name, DOB) VALUES(?,?);`
 				rows, err := db.Exec(query, cust...)
 				if err != nil {
 					panic(err.Error())
 				}
 				id, _ := rows.LastInsertId()
 				var addr []interface{}
-				addr = append(addr, c.Addr.City)
-				addr = append(addr, c.Addr.State)
-				addr = append(addr, c.Addr.StreetNumber)
+				addr = append(addr, c.Address.City)
+				addr = append(addr, c.Address.State)
+				addr = append(addr, c.Address.StreetName)
 				addr = append(addr, id)
-				query1 := `INSERT INTO Address(City,State,StreetNumber,CustId) VALUES(?,?,?,?)`
+				query1 := `INSERT INTO Address(City,State,StreetName,CustId) VALUES(?,?,?,?)`
 				row, err1 := db.Exec(query1, addr...)
 				if err1 != nil {
 					panic(err.Error())
 				}
 				idAddr, _ := row.LastInsertId()
 				c.ID = int(id)
-				c.Addr.ID = int(idAddr)
-				c.Addr.CustId = int(id)
-				fmt.Println(c)
+				c.Address.ID = int(idAddr)
+				c.Address.CustId = int(id)
+				w.WriteHeader(http.StatusCreated)
 				byte, _ := json.Marshal(c)
 				_, err = w.Write(byte)
 				if err != nil {
@@ -182,8 +187,6 @@ func EditCustomerDetails(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				panic(err.Error())
 			}
-			//fmt.Println("in err ")
-			//log.Fatal(err)
 		} else {
 			param := mux.Vars(r)
 			id, err1 := strconv.Atoi(param["id"])
@@ -194,42 +197,69 @@ func EditCustomerDetails(w http.ResponseWriter, r *http.Request) {
 					panic(err.Error())
 				}
 			} else {
-				if c.Name != "" {
-					_, err := db.Exec("update Customers set Name=? where ID=?", c.Name, id)
-					if err != nil {
-						panic(err.Error())
-						err := json.NewEncoder(w).Encode(customer{})
-						if err != nil {
-							err.Error()
-						}
-					}
-				}
-				var data []interface{}
-				query := "update Address set "
-				if c.Addr.City != "" {
-					query += "City = ? ,"
-					data = append(data, c.Addr.City)
-				}
-				if c.Addr.State != "" {
-					query += "State = ? ,"
-					data = append(data, c.Addr.State)
-				}
-				if c.Addr.StreetNumber != "" {
-					query += "StreetNumber = ? ,"
-					data = append(data, c.Addr.StreetNumber)
-				}
-				query = query[:len(query)-1]
-				query += "where CustId = ? and ID = ?"
-				data = append(data, id)
-				data = append(data, c.Addr.ID)
-				_, err = db.Exec(query, data...)
-
-				if err != nil {
-					log.Fatal(err)
-				}
-				err = json.NewEncoder(w).Encode(c)
+				query1 := `SELECT * from Customers where ID =?`
+				var id1 []interface{}
+				id1 = append(id1, id)
+				row, err := db.Query(query1, id1...)
 				if err != nil {
 					panic(err.Error())
+				}
+				if !row.Next() {
+					w.WriteHeader(http.StatusBadRequest)
+					err := json.NewEncoder(w).Encode([]customer(nil))
+					if err != nil {
+						panic(err.Error())
+					}
+				} else {
+					if c.Name != "" {
+						_, err := db.Exec("update Customers set Name=? where ID=?", c.Name, id)
+						if err != nil {
+							panic(err.Error())
+							err := json.NewEncoder(w).Encode(customer{})
+							if err != nil {
+								err.Error()
+							}
+						}
+						var custId []interface{}
+						custId = append(custId, id)
+						q := `SELECT * FROM Customers INNER JOIN Address where Address.CustID =?`
+						r, _ := db.Query(q, custId...)
+						var cu customer
+						for r.Next() {
+							e := r.Scan(&cu.ID, &cu.Name, &cu.DOB, &cu.Address.ID, &cu.Address.City, &cu.Address.State, &cu.Address.StreetName, &cu.Address.CustId)
+							if e != nil {
+								log.Fatal(e)
+							}
+						}
+						var data []interface{}
+						query := "update Address set "
+						if c.Address.City != "" {
+							query += "City = ? ,"
+							data = append(data, c.Address.City)
+						}
+						if c.Address.State != "" {
+							query += "State = ? ,"
+							data = append(data, c.Address.State)
+						}
+						if c.Address.StreetName != "" {
+							query += "StreetName = ? ,"
+							data = append(data, c.Address.StreetName)
+						}
+
+						query = query[:len(query)-1]
+						query += "where CustId = ? and ID = ?"
+						data = append(data, id)
+						data = append(data, cu.Address.ID)
+						_, err = db.Exec(query, data...)
+
+						if err != nil {
+							log.Fatal(err)
+						}
+						err = json.NewEncoder(w).Encode(c)
+						if err != nil {
+							panic(err.Error())
+						}
+					}
 				}
 			}
 		}
@@ -241,10 +271,6 @@ func DeleteCustomerById(w http.ResponseWriter, r *http.Request) {
 	id, err1 := strconv.Atoi(param["id"])
 	if err1 != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		err := json.NewEncoder(w).Encode([]customer(nil))
-		if err != nil {
-			panic(err.Error())
-		}
 	}
 	ids = append(ids, id)
 	db := getDBConnection()
@@ -254,7 +280,6 @@ func DeleteCustomerById(w http.ResponseWriter, r *http.Request) {
 		panic(err.Error())
 	}
 	if !rows.Next() {
-		fmt.Println("No rows")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode([]customer(nil))
 	} else {
@@ -266,11 +291,11 @@ func DeleteCustomerById(w http.ResponseWriter, r *http.Request) {
 		defer rows.Close()
 		var c customer
 		for rows.Next() {
-			if err := rows.Scan(&c.ID, &c.Name, &c.DOB, &c.Age, &c.Addr.ID, &c.Addr.City, &c.Addr.State, &c.Addr.StreetNumber, &c.Addr.CustId); err != nil {
+			if err := rows.Scan(&c.ID, &c.Name, &c.DOB, &c.Address.ID, &c.Address.City, &c.Address.State, &c.Address.StreetName, &c.Address.CustId); err != nil {
 				log.Fatal(err)
 			}
 		}
-		json.NewEncoder(w).Encode(c)
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 func main() {
